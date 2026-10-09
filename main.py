@@ -14,36 +14,47 @@ load_dotenv()
 # ── Config ─────────────────────────────────────────────────
 
 MIN_MATCH_SCORE    = 75
-LOCATION           = "India"
 RESULTS_PER_SEARCH = 20
 MAX_RETRIES        = 3
 
+# International scraping — add/remove locations as you like.
+# "Remote" is a valid LinkedIn location query and surfaces
+# globally-remote postings that aren't tied to one country.
+LOCATIONS = [
+    "India",
+    "United States",
+    "United Kingdom",
+    "Canada",
+    "Remote",
+]
+
+# Candidate experience — used by the evaluator to gate jobs.
+# A job is only skipped if it asks for MORE than the acceptable max.
+CANDIDATE_YEARS_EXPERIENCE     = 3
+MAX_ACCEPTABLE_EXPERIENCE_YEARS = 5
+
 JOB_SEARCH_TERMS = [
     # Explicitly junior/mid level
-    "DevOps Engineer 2 years experience",
-    "DevOps Engineer 3 years experience",
-    "Associate DevOps Engineer",
-    "Junior DevOps Engineer",
-    "Mid Level DevOps Engineer",
-    # Core roles
-    "DevOps Engineer",
-    "DevOps Specialist",
-    # SRE
-    "Site Reliability Engineer",
-    "Junior SRE Engineer",
-    # Cloud
-    "Cloud Engineer",
-    "AWS DevOps Engineer",
-    "Azure DevOps Engineer",
-    # CI/CD
-    "CI CD Engineer",
-    "Build Release Engineer",
-    # Platform
-    "Platform Engineer",
-    "Junior Platform Engineer",
-    # Infrastructure
-    "Infrastructure Engineer",
-    "Systems Engineer DevOps",
+    "Python Developer 3 years experience",
+    "Associate Python Developer",
+    "Junior Python Developer",
+    "Mid Level Python Developer",
+    # Core Python roles
+    "Python Developer",
+    "Python Backend Engineer",
+    "Backend Developer Python",
+    # Gen AI
+    "Gen AI Engineer",
+    "Generative AI Engineer",
+    "Junior Gen AI Engineer",
+    # AI Engineer
+    "AI Engineer",
+    "Junior AI Engineer",
+    "Machine Learning Engineer Python",
+    # Agentic AI
+    "Agentic AI Engineer",
+    "AI Agent Engineer",
+    "LLM Engineer",
 ]
 
 # ── Date filter ────────────────────────────────────────────
@@ -69,10 +80,10 @@ def is_posted_recently(job, hours: int = 24) -> bool:
 
 # ── Scraper with retry logic ───────────────────────────────
 
-async def scrape_with_retry(search_term: str) -> object:
+async def scrape_with_retry(search_term: str, location: str) -> object:
     """
     Scrapes LinkedIn jobs with simple retry logic.
-    LinkedIn only — Indeed/Glassdoor unreliable for India.
+    LinkedIn only — Indeed/Glassdoor unreliable outside a few markets.
     Waits 10s → 20s → 30s between retries.
     """
     for attempt in range(1, MAX_RETRIES + 1):
@@ -82,9 +93,10 @@ async def scrape_with_retry(search_term: str) -> object:
             jobs = scrape_jobs(
                 site_name=["linkedin"],
                 search_term=search_term,
-                location=LOCATION,
+                location=location,
                 results_wanted=RESULTS_PER_SEARCH,
-                hours_old=24
+                hours_old=24,
+                linkedin_fetch_description=True,
             )
 
             if jobs is not None and not jobs.empty:
@@ -101,7 +113,7 @@ async def scrape_with_retry(search_term: str) -> object:
             print(f"   ⏳ Waiting {wait_time}s before retry...")
             await asyncio.sleep(wait_time)
 
-    print(f"   ❌ All {MAX_RETRIES} attempts failed for: {search_term}")
+    print(f"   ❌ All {MAX_RETRIES} attempts failed for: {search_term} ({location})")
     return None
 
 
@@ -110,11 +122,16 @@ async def scrape_with_retry(search_term: str) -> object:
 async def run_agent():
     """Runs the full job agent pipeline."""
 
+    total_combos = len(JOB_SEARCH_TERMS) * len(LOCATIONS)
+
     print(f"\n{'='*55}")
     print(f"🤖 LinkedIn Job Agent Started")
     print(f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"📊 Min match score:   {MIN_MATCH_SCORE}+")
+    print(f"📈 Experience gate:   candidate {CANDIDATE_YEARS_EXPERIENCE} yrs, accept up to {MAX_ACCEPTABLE_EXPERIENCE_YEARS} yrs required")
     print(f"🔍 Search terms:      {len(JOB_SEARCH_TERMS)}")
+    print(f"🌍 Locations:         {len(LOCATIONS)} ({', '.join(LOCATIONS)})")
+    print(f"🔁 Total searches:    {total_combos} (terms × locations)")
     print(f"{'='*55}")
 
     # Parse resume once
@@ -128,102 +145,111 @@ async def run_agent():
     skipped_exp    = 0
     failed_scrapes = 0
 
-    for search_term in JOB_SEARCH_TERMS:
-        print(f"\n🔍 Searching: {search_term} in {LOCATION}")
+    for location in LOCATIONS:
+        for search_term in JOB_SEARCH_TERMS:
+            print(f"\n🔍 Searching: {search_term} in {location}")
 
-        jobs = await scrape_with_retry(search_term)
+            jobs = await scrape_with_retry(search_term, location)
 
-        if jobs is None or jobs.empty:
-            failed_scrapes += 1
-            print(f"   ⚠️  Skipping — no results after {MAX_RETRIES} attempts")
-            continue
-
-        print(f"   ✅ Found {len(jobs)} jobs — applying filters...")
-
-        for _, job in jobs.iterrows():
-            total_jobs += 1
-
-            title       = str(job.get("title", ""))
-            company     = str(job.get("company", ""))
-            description = str(job.get("description", ""))
-            job_url     = str(job.get("job_url", ""))
-
-            # ── Filter 1: Skip already processed jobs ──
-            if is_already_processed(title, company):
-                skipped_dupes += 1
-                print(f"   ⏭️  Already processed: {title} @ {company}")
+            if jobs is None or jobs.empty:
+                failed_scrapes += 1
+                print(f"   ⚠️  Skipping — no results after {MAX_RETRIES} attempts")
                 continue
 
-            # ── Filter 2: Posted in last 24 hours ──
-            if not is_posted_recently(job, hours=24):
-                print(f"   ⏭️  Skipping (too old): {title}")
-                continue
+            print(f"   ✅ Found {len(jobs)} jobs — applying filters...")
 
-            filtered_jobs += 1
-            print(f"\n{'─'*50}")
-            print(f"   📋 {title} @ {company}")
+            for _, job in jobs.iterrows():
+                total_jobs += 1
 
-            # ── Build state — include ALL required fields ──
-            state = {
-                "job_url":              job_url,
-                "job_title":            title,
-                "company_name":         company,
-                "job_description":      description,
-                "required_skills":      [],
-                "external_url":         job_url,
-                "resume_text":          resume["full_text"],
-                "resume_data":          resume,
-                "resume_pdf_path":      "data/resume.pdf",
-                "match_score":          0,
-                "gap_analysis":         "",
-                "missing_skills":       [],
-                "matched_skills":       [],
-                "experience_match":     True,   # ← LLM will update this
-                "experience_required":  0,      # ← LLM will update this
-                "cover_letter":         None,
-                "apply_method":         None,
-                "application_status":   None,
-                "feedback":             None,
-            }
+                title       = str(job.get("title", ""))
+                company     = str(job.get("company", ""))
+                description = str(job.get("description", ""))
+                job_url     = str(job.get("job_url", ""))
 
-            # ── Run the graph ──
-            try:
-                result = await app.ainvoke(state)
-
-                score        = result.get("match_score", 0)
-                exp_match    = result.get("experience_match", True)
-                exp_required = result.get("experience_required", 0)
-
-                # Mark processed regardless of outcome
-                mark_job_processed(title, company)
-
-                # ── Block 1: Experience mismatch → skip ──
-                if not exp_match:
-                    skipped_exp += 1
-                    print(f"   ⛔ Skipping alert — needs {exp_required} yrs (you have 2)")
-                    low_matches += 1
+                # ── Filter 1: Skip already processed jobs ──
+                if is_already_processed(title, company):
+                    skipped_dupes += 1
+                    print(f"   ⏭️  Already processed: {title} @ {company}")
                     continue
 
-                # ── Block 2: Score too low → skip ──
-                if score < MIN_MATCH_SCORE:
-                    low_matches += 1
-                    print(f"   🔴 Score too low ({score}) — skipping alert")
+                # ── Filter 2: Posted in last 24 hours ──
+                if not is_posted_recently(job, hours=24):
+                    print(f"   ⏭️  Skipping (too old): {title}")
                     continue
 
-                # ── Block 3: Good match → send Telegram ──
-                high_matches += 1
-                await send_job_alert(result)
-                print(f"   📱 Telegram alert sent!")
+                # ── Filter 3: Description must actually be present ──
+                if len(description.strip()) < 50:
+                    skipped_empty_desc += 1
+                    print(f"   ⏭️  Skipping (no description scraped): {title}")
+                    continue
 
-            except Exception as e:
-                print(f"   ❌ Agent error: {e}")
-                mark_job_processed(title, company)
+                filtered_jobs += 1
+                print(f"\n{'─'*50}")
+                print(f"   📋 {title} @ {company} ({location})")
 
-            # Delay between jobs
-            await asyncio.sleep(30)
+                # ── Build state — include ALL required fields ──
+                state = {
+                    "job_url":                      job_url,
+                    "job_title":                     title,
+                    "company_name":                  company,
+                    "job_description":               description,
+                    "required_skills":               [],
+                    "external_url":                  job_url,
+                    "resume_text":                   resume["full_text"],
+                    "resume_data":                   resume,
+                    "resume_pdf_path":                "data/resume.pdf",
+                    "match_score":                    0,
+                    "gap_analysis":                   "",
+                    "missing_skills":                 [],
+                    "matched_skills":                 [],
+                    "experience_match":               True,   # ← LLM will update this
+                    "experience_required":            0,      # ← LLM will update this
+                    "candidate_years_experience":      CANDIDATE_YEARS_EXPERIENCE,
+                    "max_acceptable_experience_years": MAX_ACCEPTABLE_EXPERIENCE_YEARS,
+                    "cover_letter":                   None,
+                    "apply_method":                   None,
+                    "application_status":             None,
+                    "feedback":                       None,
+                }
 
-        # Delay between search terms
-        await asyncio.sleep(10)
+                # ── Run the graph ──
+                try:
+                    result = await app.ainvoke(state)
+
+                    score        = result.get("match_score", 0)
+                    exp_match    = result.get("experience_match", True)
+                    exp_required = result.get("experience_required", 0)
+
+                    # Mark processed regardless of outcome
+                    mark_job_processed(title, company)
+
+                    # ── Block 1: Experience mismatch → skip ──
+                    if not exp_match:
+                        skipped_exp += 1
+                        print(f"   ⛔ Skipping alert — needs {exp_required} yrs (accepting up to {MAX_ACCEPTABLE_EXPERIENCE_YEARS})")
+                        low_matches += 1
+                        continue
+
+                    # ── Block 2: Score too low → skip ──
+                    if score < MIN_MATCH_SCORE:
+                        low_matches += 1
+                        print(f"   🔴 Score too low ({score}) — skipping alert")
+                        continue
+
+                    # ── Block 3: Good match → send Telegram ──
+                    high_matches += 1
+                    await send_job_alert(result)
+                    print(f"   📱 Telegram alert sent!")
+
+                except Exception as e:
+                    print(f"   ❌ Agent error: {e}")
+                    mark_job_processed(title, company)
+
+                # Delay between jobs
+                await asyncio.sleep(30)
+
+            # Delay between search terms
+            await asyncio.sleep(10)
 
     # ── Final summary ──────────────────────────────────────
     print(f"\n{'='*55}")

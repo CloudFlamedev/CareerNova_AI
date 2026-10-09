@@ -21,6 +21,8 @@ class AgentState(TypedDict):
     matched_skills:        List[str]
     experience_match:      bool
     experience_required:   int
+    candidate_years_experience:      int
+    max_acceptable_experience_years: int
 
     # Generated
     cover_letter:          Optional[str]

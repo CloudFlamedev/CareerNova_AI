@@ -8,6 +8,9 @@ async def evaluator_node(state: dict) -> dict:
     resume_text = state['resume_text'][:2000]
     job_desc    = state['job_description'][:1500]
 
+    candidate_years = state.get('candidate_years_experience', 3)
+    max_acceptable   = state.get('max_acceptable_experience_years', 5)
+
     prompt = f"""
 You are a hiring manager. Read this job description carefully.
 
@@ -21,8 +24,8 @@ JOB DESCRIPTION:
 
 TASK:
 1. Read the job description and find how many years of experience it requires.
-2. The candidate has exactly 2 years of experience.
-3. If the job requires MORE than 3 years — set experience_match to false.
+2. The candidate has {candidate_years} years of experience.
+3. If the job requires MORE than {max_acceptable} years — set experience_match to false.
 4. Score how well the resume matches the job skills.
 
 IMPORTANT: Return ONLY a JSON object. No explanation. No markdown.
@@ -33,7 +36,7 @@ The JSON must follow this exact structure:
     "matched_skills": <list of skills from resume that match job>,
     "missing_skills": <list of skills job needs but resume lacks>,
     "experience_required": <exact minimum years the job requires, write 0 if not mentioned>,
-    "experience_match": <write false if job needs more than 3 years, otherwise true>,
+    "experience_match": <write false if job needs more than {max_acceptable} years, otherwise true>,
     "summary": <one sentence about the match>
 }}
 """
@@ -86,10 +89,10 @@ The JSON must follow this exact structure:
     exp_required = result.get("experience_required", 0)
     exp_match    = result.get("experience_match", True)
 
-    if not exp_match or exp_required > 3:
-        print(f"\n⛔ Job needs {exp_required} yrs — candidate has 2 yrs — skipping")
+    if not exp_match or exp_required > max_acceptable:
+        print(f"\n⛔ Job needs {exp_required} yrs — candidate has {candidate_years} yrs — skipping")
         state["match_score"]         = 0
-        state["gap_analysis"]        = f"Job requires {exp_required} years, candidate has 2"
+        state["gap_analysis"]        = f"Job requires {exp_required} years, candidate has {candidate_years}"
         state["missing_skills"]      = []
         state["matched_skills"]      = []
         state["experience_match"]    = False
