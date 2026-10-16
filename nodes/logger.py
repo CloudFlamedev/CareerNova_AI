@@ -3,7 +3,11 @@ from datetime import datetime
 from tools.job_tracker import init_db, get_job_hash
 
 async def logger_node(state: dict) -> dict:
-    """Saves full application result to SQLite database."""
+    """Save completed evaluations; leave transient LLM failures retryable."""
+
+    if state.get("llm_failed"):
+        print("   ↩️  Not recording this job as processed; it will be retried on a later scan.")
+        return state
 
     init_db()  # ensure table exists
 

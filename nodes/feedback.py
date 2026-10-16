@@ -1,33 +1,31 @@
+"""Generate concise feedback only for mid-range matches (50–74)."""
 from tools.llm_client import llm
 
+
 async def feedback_node(state: dict) -> dict:
-    """Generates resume improvement suggestions for low match jobs."""
+    """Feedback is optional: if models are unavailable, preserve evaluation."""
+    prompt = f"""Give concise, practical resume feedback for this job match.
+Score: {state.get('match_score', 0)}/100
+Job: {state.get('job_title', '')} at {state.get('company_name', '')}
+Matched skills: {state.get('matched_skills', [])}
+Missing skills: {state.get('missing_skills', [])}
+Evaluation: {state.get('gap_analysis', '')}
+Resume excerpt: {str(state.get('resume_text', ''))[:900]}
 
-    prompt = f"""
-You are a professional career coach. A candidate's resume scored {state['match_score']}/100 
-for this job. Give specific, actionable advice to improve their resume for this role.
-
-JOB TITLE: {state['job_title']}
-COMPANY: {state['company_name']}
-MISSING SKILLS: {state['gap_analysis']}
-
-CURRENT RESUME:
-{state['resume_text'][:2000]}
-
-Provide feedback in this format:
-1. TOP 3 SKILLS TO ADD: (specific skills missing from resume)
-2. SECTIONS TO REWRITE: (which resume sections and exactly how)
-3. KEYWORDS TO INCLUDE: (exact keywords from job description to add)
-4. QUICK WINS: (small changes that immediately improve the score)
-
-Be specific, not generic. Reference the actual job and resume content.
-"""
-
-    response = await llm.ainvoke(prompt)
-    state["feedback"] = response.content
-    state["application_status"] = "feedback_generated"
-
-    print(f"\n💡 Feedback generated for: {state['job_title']}")
-    print(state["feedback"][:500])
-
+In at most 120 words, list the 2 most important truthful improvements.
+Do not suggest inventing skills or experience."""
+    try:
+        response = await llm.ainvoke(prompt)
+        content = str(getattr(response, "content", "") or "").strip()
+        if not content:
+            raise RuntimeError("Empty feedback response")
+        state["feedback"] = content[:1500]
+        state["application_status"] = "feedback_generated"
+        print(f"\n💡 Feedback generated for: {state.get('job_title', '')}")
+        print(content[:350])
+    except Exception as exc:
+        # Evaluation succeeded, so don't force an expensive re-evaluation next scan.
+        state["feedback"] = None
+        state["application_status"] = "evaluated_feedback_unavailable"
+        print(f"   ⚠️ Feedback skipped (evaluation retained): {type(exc).__name__}: {str(exc)[:180]}")
     return state

@@ -42,7 +42,6 @@ async def send_job_alert(state: dict):
     job_url      = state.get("job_url", "")
     missing      = state.get("missing_skills", [])
     matched      = state.get("matched_skills", [])
-    cover_ready  = "✅ Ready" if state.get("cover_letter") else "❌ Not generated"
 
     # Format missing skills as bullet list
     if missing:
@@ -64,8 +63,6 @@ async def send_job_alert(state: dict):
 📋 <b>{job_title}</b>
 🏢 {company}
 ⭐ Match Score: <b>{score}/100</b>
-📄 Cover Letter: {cover_ready}
-
 ✅ <b>Your Matching Skills:</b>
 {matched_text}
 
@@ -89,9 +86,9 @@ async def send_daily_summary(jobs_processed: int,
 📊 <b>Job Agent Report</b>
 
 🔍 Jobs Scanned: {jobs_processed}
-✅ High Matches (80+): {high_matches}
+✅ High Matches (75+): {high_matches}
 🔴 Low Matches: {low_matches}
 
-<i>Next scan in 3 hours</i>
+<i>Next scan in 6 hours</i>
 """
     await send_telegram_message(message.strip())

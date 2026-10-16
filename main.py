@@ -14,19 +14,65 @@ load_dotenv()
 # ── Config ─────────────────────────────────────────────────
 
 MIN_MATCH_SCORE    = 75
+MIN_FEEDBACK_SCORE  = 50  # Keep in sync with graph.py
 RESULTS_PER_SEARCH = 20
 MAX_RETRIES        = 3
 
-# International scraping — add/remove locations as you like.
-# "Remote" is a valid LinkedIn location query and surfaces
-# globally-remote postings that aren't tied to one country.
-LOCATIONS = [
-    "India",
-    "United States",
-    "United Kingdom",
-    "Canada",
-    "Remote",
-]
+# Search only India-based openings and remote opportunities.
+# The India query covers roles across India; Remote can surface remote roles
+# worldwide. We also validate results from the Remote query below to avoid
+# accepting ordinary onsite jobs outside India.
+LOCATIONS = ["India", "Remote"]
+
+
+def is_remote_job(job) -> bool:
+    """Return True only when the scraped fields identify the role as remote."""
+    remote_flag = job.get("is_remote", False)
+    if isinstance(remote_flag, bool) and remote_flag:
+        return True
+    if str(remote_flag).strip().lower() in {"true", "1", "yes", "y"}:
+        return True
+
+    # Use structured/short fields rather than the full description, since a
+    # description can mention remote work without the job itself being remote.
+    fields = (
+        job.get("location", ""),
+        job.get("workplace_type", ""),
+        job.get("title", ""),
+    )
+    text = " ".join(str(value) for value in fields if value is not None).lower()
+    remote_markers = (
+        "remote", "work from anywhere", "anywhere in the world", "worldwide remote"
+    )
+    return any(marker in text for marker in remote_markers)
+
+
+def is_india_based_job(job) -> bool:
+    """Identify roles explicitly listed in India, including common Indian cities."""
+    fields = (
+        job.get("location", ""),
+        job.get("country", ""),
+        job.get("state", ""),
+        job.get("city", ""),
+    )
+    text = " ".join(str(value) for value in fields if value is not None).lower()
+    if "india" in text:
+        return True
+
+    # Some LinkedIn results list only a city/state instead of the country.
+    indian_places = (
+        "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", "delhi",
+        "new delhi", "noida", "gurugram", "gurgaon", "chennai", "kolkata",
+        "ahmedabad", "jaipur", "kochi", "cochin", "chandigarh", "indore",
+        "bhopal", "lucknow", "kanpur", "nagpur", "surat", "vadodara",
+        "visakhapatnam", "vizag", "coimbatore", "thiruvananthapuram",
+        "trivandrum", "mohali", "greater noida", "navi mumbai",
+        "uttar pradesh", "maharashtra", "karnataka", "telangana", "tamil nadu",
+        "west bengal", "gujarat", "rajasthan", "kerala", "punjab", "haryana",
+        "madhya pradesh", "andhra pradesh", "odisha", "bihar", "jharkhand",
+        "assam", "uttarakhand", "himachal pradesh",
+    )
+    return any(place in text for place in indian_places)
 
 # Candidate experience — used by the evaluator to gate jobs.
 # A job is only skipped if it asks for MORE than the acceptable max.
@@ -59,7 +105,7 @@ JOB_SEARCH_TERMS = [
 
 # ── Date filter ────────────────────────────────────────────
 
-def is_posted_recently(job, hours: int = 24) -> bool:
+def is_posted_recently(job, hours: int = 12) -> bool:
     """Returns True if job was posted within the last X hours."""
     try:
         date_posted = job.get("date_posted")
@@ -95,7 +141,7 @@ async def scrape_with_retry(search_term: str, location: str) -> object:
                 search_term=search_term,
                 location=location,
                 results_wanted=RESULTS_PER_SEARCH,
-                hours_old=24,
+                hours_old=12,
                 linkedin_fetch_description=True,
             )
 
@@ -127,7 +173,9 @@ async def run_agent():
     print(f"\n{'='*55}")
     print(f"🤖 LinkedIn Job Agent Started")
     print(f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"📊 Min match score:   {MIN_MATCH_SCORE}+")
+    print(f"📊 Telegram alert score: {MIN_MATCH_SCORE}+")
+    print(f"🪙 Feedback score range: {MIN_FEEDBACK_SCORE}–{MIN_MATCH_SCORE - 1}; lower scores skip feedback")
+    print("✉️ Cover-letter generation: DISABLED")
     print(f"📈 Experience gate:   candidate {CANDIDATE_YEARS_EXPERIENCE} yrs, accept up to {MAX_ACCEPTABLE_EXPERIENCE_YEARS} yrs required")
     print(f"🔍 Search terms:      {len(JOB_SEARCH_TERMS)}")
     print(f"🌍 Locations:         {len(LOCATIONS)} ({', '.join(LOCATIONS)})")
@@ -144,6 +192,7 @@ async def run_agent():
     skipped_dupes  = 0
     skipped_exp    = 0
     failed_scrapes = 0
+    skipped_empty_desc = 0
 
     for location in LOCATIONS:
         for search_term in JOB_SEARCH_TERMS:
@@ -166,18 +215,28 @@ async def run_agent():
                 description = str(job.get("description", ""))
                 job_url     = str(job.get("job_url", ""))
 
-                # ── Filter 1: Skip already processed jobs ──
+                # ── Filter 1: Restrict results to India or remote roles ──
+                # The India search is country-scoped by LinkedIn. The Remote
+                # search is broader, so require an explicit remote signal or an
+                # India location before evaluating the job.
+                if location == "Remote" and not (
+                    is_remote_job(job) or is_india_based_job(job)
+                ):
+                    print(f"   ⏭️  Skipping (not confirmed India/remote): {title}")
+                    continue
+
+                # ── Filter 2: Skip already processed jobs ──
                 if is_already_processed(title, company):
                     skipped_dupes += 1
                     print(f"   ⏭️  Already processed: {title} @ {company}")
                     continue
 
-                # ── Filter 2: Posted in last 24 hours ──
-                if not is_posted_recently(job, hours=24):
+                # ── Filter 3: Posted in last 12 hours ──
+                if not is_posted_recently(job, hours=12):
                     print(f"   ⏭️  Skipping (too old): {title}")
                     continue
 
-                # ── Filter 3: Description must actually be present ──
+                # ── Filter 4: Description must actually be present ──
                 if len(description.strip()) < 50:
                     skipped_empty_desc += 1
                     print(f"   ⏭️  Skipping (no description scraped): {title}")
@@ -198,7 +257,7 @@ async def run_agent():
                     "resume_text":                   resume["full_text"],
                     "resume_data":                   resume,
                     "resume_pdf_path":                "data/resume.pdf",
-                    "match_score":                    0,
+                    "match_score":                    None,
                     "gap_analysis":                   "",
                     "missing_skills":                 [],
                     "matched_skills":                 [],
@@ -206,21 +265,40 @@ async def run_agent():
                     "experience_required":            0,      # ← LLM will update this
                     "candidate_years_experience":      CANDIDATE_YEARS_EXPERIENCE,
                     "max_acceptable_experience_years": MAX_ACCEPTABLE_EXPERIENCE_YEARS,
+                    # Legacy DB/state field retained as None; generation is disabled.
                     "cover_letter":                   None,
                     "apply_method":                   None,
                     "application_status":             None,
                     "feedback":                       None,
+                    "llm_failed":                     False,
+                    "llm_error":                      "",
                 }
 
                 # ── Run the graph ──
                 try:
                     result = await app.ainvoke(state)
 
-                    score        = result.get("match_score", 0)
-                    exp_match    = result.get("experience_match", True)
+                    # Check failure flags before reading or comparing the score.
+                    # Failed evaluations must remain eligible for a later retry.
+                    if result.get("llm_failed"):
+                        reason = result.get("llm_error", "Unknown LLM error")
+                        print(f"   ↩️  LLM evaluation failed: {reason[:180]}")
+                        print("   This job was not marked processed and can retry on a later scan.")
+                        low_matches += 1
+                        await asyncio.sleep(30)
+                        continue
+
+                    score = result.get("match_score")
+                    if not isinstance(score, (int, float)) or isinstance(score, bool):
+                        print("   ⚠️ Invalid/missing match score; leaving job eligible for retry.")
+                        low_matches += 1
+                        await asyncio.sleep(30)
+                        continue
+
+                    exp_match = result.get("experience_match", True)
                     exp_required = result.get("experience_required", 0)
 
-                    # Mark processed regardless of outcome
+                    # Mark only successfully evaluated jobs as processed.
                     mark_job_processed(title, company)
 
                     # ── Block 1: Experience mismatch → skip ──
@@ -230,20 +308,23 @@ async def run_agent():
                         low_matches += 1
                         continue
 
-                    # ── Block 2: Score too low → skip ──
+                    # ── Block 2: Below alert threshold ──
                     if score < MIN_MATCH_SCORE:
                         low_matches += 1
-                        print(f"   🔴 Score too low ({score}) — skipping alert")
+                        if score < MIN_FEEDBACK_SCORE:
+                            print(f"   🔴 Score too low ({score}) — feedback skipped to conserve tokens")
+                        else:
+                            print(f"   🟠 Score {score} — feedback attempted; skipping alert")
                         continue
 
-                    # ── Block 3: Good match → send Telegram ──
+                    # ── Block 3: Good match → send Telegram (no cover letter) ──
                     high_matches += 1
                     await send_job_alert(result)
                     print(f"   📱 Telegram alert sent!")
 
                 except Exception as e:
                     print(f"   ❌ Agent error: {e}")
-                    mark_job_processed(title, company)
+                    # Do not mark jobs processed on exceptions; later scans can retry them.
 
                 # Delay between jobs
                 await asyncio.sleep(30)
