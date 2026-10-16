@@ -71,7 +71,7 @@ async def send_job_alert(state: dict):
 
 🔗 <a href="{job_url}">Apply Now →</a>
 
-<i>Posted in last 24hrs • Apply fast!</i>
+<i>Posted in last 12 hours • Apply fast!</i>
 """
 
     await send_telegram_message(message.strip())
@@ -89,6 +89,6 @@ async def send_daily_summary(jobs_processed: int,
 ✅ High Matches (75+): {high_matches}
 🔴 Low Matches: {low_matches}
 
-<i>Next scan in 6 hours</i>
+<i>Next scan in 10 hours</i>
 """
     await send_telegram_message(message.strip())

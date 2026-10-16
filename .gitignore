@@ -1,27 +1,25 @@
-nano .gitignore
-```
-
-Paste this:
-```
-# Secret credentials — never upload
+# Credentials and local configuration
 .env
+.env.*
+!.env.example
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Virtual environment — too large to upload
+# Python virtual environments and cache
 venv/
+.venv/
+__pycache__/
+*.py[cod]
 
-# Database — personal data
+# Local database/logs (job history lives in Neon for GitHub Actions)
 logs/
 *.db
+*.sqlite
+*.sqlite3
 
-# OS files
+# Model cooldown state is local to one runner
+.groq_model_cooldowns.json
+
+# Editors and OS files
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
-
-# VS Code settings
-.vscode/

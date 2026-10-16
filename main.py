@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import os
 import re
@@ -5,7 +6,12 @@ from datetime import datetime, timedelta
 from jobspy import scrape_jobs
 from tools.resume_parser import parse_resume
 from tools.telegram_notifier import send_job_alert, send_daily_summary
-from tools.job_tracker import is_already_processed, mark_job_processed
+from tools.job_tracker import (
+    is_already_processed,
+    mark_job_processed,
+    try_start_scheduled_run,
+    reset_scheduled_run_after_failure,
+)
 from graph import app
 from dotenv import load_dotenv
 
@@ -347,25 +353,60 @@ async def run_agent():
     await send_daily_summary(filtered_jobs, high_matches, low_matches)
 
 
-# ── Scheduler: runs every 6 hours ─────────────────────────
+# ── Local scheduler: runs every 10 hours ───────────────────
 
 async def scheduler():
-    """Runs the agent every 6 hours automatically."""
+    """Runs the agent every 10 hours when used outside GitHub Actions."""
     while True:
         try:
             await run_agent()
         except Exception as e:
             print(f"❌ Scheduler error: {e}")
 
-        next_run = datetime.now() + timedelta(hours=6)
+        next_run = datetime.now() + timedelta(hours=10)
         print(f"\n⏳ Next run at: {next_run.strftime('%H:%M')}")
-
-        await asyncio.sleep(6 * 60 * 60)
+        await asyncio.sleep(10 * 60 * 60)
 
 
 # ── Entry point ────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("🚀 Starting LinkedIn Job Agent with scheduler...")
-    print("   Press Ctrl+C to stop\n")
-    asyncio.run(scheduler())
+    parser = argparse.ArgumentParser(description="LinkedIn job search agent")
+    parser.add_argument(
+        "--once", action="store_true",
+        help="Run one scan and exit (for GitHub Actions).",
+    )
+    parser.add_argument(
+        "--skip-schedule-check", action="store_true",
+        help="Internal: the GitHub Actions schedule guard already claimed this run.",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="With --once, run immediately even if fewer than 10 hours have elapsed.",
+    )
+    args = parser.parse_args()
+
+    if args.once:
+        if args.skip_schedule_check and args.force:
+            parser.error("--force and --skip-schedule-check should not be used together.")
+
+        claimed_here = not args.skip_schedule_check
+        if claimed_here and not try_start_scheduled_run(interval_hours=10, force=args.force):
+            print("⏭️  Scan not due yet; the last run started less than 10 hours ago.")
+            raise SystemExit(0)
+
+        print("🚀 Starting LinkedIn Job Agent for a single scan...\n")
+        try:
+            asyncio.run(run_agent())
+        except BaseException:
+            # A failed one-shot run should be eligible for retry at the next hourly check.
+            if claimed_here:
+                try:
+                    reset_scheduled_run_after_failure()
+                except Exception as reset_exc:
+                    print(f"⚠️ Could not reset schedule state after failure: {reset_exc}")
+            raise
+    else:
+        print("🚀 Starting LinkedIn Job Agent with 10-hour local scheduler...")
+        print("   Press Ctrl+C to stop\n")
+        asyncio.run(scheduler())
