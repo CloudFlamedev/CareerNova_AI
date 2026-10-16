@@ -21,8 +21,13 @@ load_dotenv()
 
 MIN_MATCH_SCORE    = 75
 MIN_FEEDBACK_SCORE  = 50  # Keep in sync with graph.py
-RESULTS_PER_SEARCH = 20
+# Keep each search smaller to reduce the total runtime in GitHub Actions.
+RESULTS_PER_SEARCH = 10
 MAX_RETRIES        = 3
+# Conservative delays: faster than the original 30s/job while allowing time
+# between Groq requests to reduce the likelihood of rate-limit errors.
+JOB_DELAY_SECONDS    = 20
+SEARCH_DELAY_SECONDS = 3
 
 # Search only India-based openings and remote opportunities.
 # The India query covers roles across India; Remote can surface remote roles
@@ -186,6 +191,8 @@ async def run_agent():
     print(f"🔍 Search terms:      {len(JOB_SEARCH_TERMS)}")
     print(f"🌍 Locations:         {len(LOCATIONS)} ({', '.join(LOCATIONS)})")
     print(f"🔁 Total searches:    {total_combos} (terms × locations)")
+    print(f"📦 Results per search: {RESULTS_PER_SEARCH}")
+    print(f"⏱️ Job delay:          {JOB_DELAY_SECONDS}s; search delay: {SEARCH_DELAY_SECONDS}s")
     print(f"{'='*55}")
 
     # Parse resume once
@@ -291,14 +298,14 @@ async def run_agent():
                         print(f"   ↩️  LLM evaluation failed: {reason[:180]}")
                         print("   This job was not marked processed and can retry on a later scan.")
                         low_matches += 1
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(JOB_DELAY_SECONDS)
                         continue
 
                     score = result.get("match_score")
                     if not isinstance(score, (int, float)) or isinstance(score, bool):
                         print("   ⚠️ Invalid/missing match score; leaving job eligible for retry.")
                         low_matches += 1
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(JOB_DELAY_SECONDS)
                         continue
 
                     exp_match = result.get("experience_match", True)
@@ -333,10 +340,10 @@ async def run_agent():
                     # Do not mark jobs processed on exceptions; later scans can retry them.
 
                 # Delay between jobs
-                await asyncio.sleep(30)
+                await asyncio.sleep(JOB_DELAY_SECONDS)
 
             # Delay between search terms
-            await asyncio.sleep(10)
+            await asyncio.sleep(SEARCH_DELAY_SECONDS)
 
     # ── Final summary ──────────────────────────────────────
     print(f"\n{'='*55}")
