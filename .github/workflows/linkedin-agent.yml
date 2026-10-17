@@ -51,9 +51,16 @@ jobs:
         env:
           FORCE_RUN: ${{ inputs.force_run }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$FORCE_RUN" == "true" ]]; then
+          # The cron schedule already controls the 4-hour cadence. Do not let
+          # a stale/previous Neon timestamp silently skip an actual scheduled scan.
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            echo "Scheduled trigger: starting the scan; the cron schedule controls cadence."
+            python scripts/schedule_guard.py --force
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$FORCE_RUN" == "true" ]]; then
+            echo "Manual force_run enabled: starting the scan now."
             python scripts/schedule_guard.py --force
           else
+            echo "Manual run without force: checking the 4-hour Neon interval."
             python scripts/schedule_guard.py
           fi
 
