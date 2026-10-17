@@ -1,14 +1,14 @@
 name: LinkedIn Job Agent
 
 on:
-  # GitHub checks hourly; the Neon-backed guard starts a scan only after 10 hours.
+  # GitHub schedules a check every 4 hours; the Neon-backed guard enforces the same interval.
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 */4 * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
       force_run:
-        description: "Run now even if the 10-hour interval has not elapsed"
+        description: "Run now even if the 4-hour interval has not elapsed"
         required: false
         type: boolean
         default: false
@@ -42,7 +42,7 @@ jobs:
           cache: "pip"
           cache-dependency-path: requirements.txt
 
-      # Keep skipped hourly checks cheap: only install the PostgreSQL driver before the gate.
+      # Keep skipped schedule checks cheap: only install the PostgreSQL driver before the gate.
       - name: Install database driver for schedule check
         run: python -m pip install "psycopg[binary]==3.3.6"
 

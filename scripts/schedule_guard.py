@@ -1,4 +1,4 @@
-"""Hourly GitHub Actions gate; actually claims a run only when 10 hours are due."""
+"""GitHub Actions gate; claims a run only when the 4-hour interval is due."""
 from __future__ import annotations
 
 import argparse
@@ -23,7 +23,7 @@ def write_github_output(should_run: bool) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--force", action="store_true", help="Claim a run even if 10 hours have not elapsed.")
+    parser.add_argument("--force", action="store_true", help="Claim a run even if 4 hours have not elapsed.")
     parser.add_argument("--reset", action="store_true", help="Clear the claim after a failed workflow.")
     args = parser.parse_args()
 
@@ -35,15 +35,15 @@ def main() -> int:
 
     if args.reset:
         reset_scheduled_run_after_failure()
-        print("Schedule claim cleared; the next hourly check can retry.")
+        print("Schedule claim cleared; the next scheduled check can retry.")
         write_github_output(False)
         return 0
 
-    should_run = try_start_scheduled_run(interval_hours=10, force=args.force)
+    should_run = try_start_scheduled_run(interval_hours=4, force=args.force)
     if should_run:
-        print("✅ Ten-hour window elapsed (or run was forced); starting the agent.")
+        print("✅ Four-hour window elapsed (or run was forced); starting the agent.")
     else:
-        print("⏭️ Last run started less than 10 hours ago; skipping this hourly check.")
+        print("⏭️ Last run started less than 4 hours ago; skipping this scheduled check.")
     write_github_output(should_run)
     return 0
 

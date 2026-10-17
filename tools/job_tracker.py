@@ -121,7 +121,7 @@ def mark_job_processed(job_title: str, company: str) -> None:
         conn.close()
 
 
-def try_start_scheduled_run(interval_hours: int = 10, force: bool = False) -> bool:
+def try_start_scheduled_run(interval_hours: int = 4, force: bool = False) -> bool:
     """Atomically claim a run if the previous start was at least N hours ago."""
     init_db()
     now = datetime.now(timezone.utc)
@@ -176,7 +176,7 @@ def try_start_scheduled_run(interval_hours: int = 10, force: bool = False) -> bo
 
 
 def reset_scheduled_run_after_failure() -> None:
-    """Allow the next hourly GitHub check to retry after a failed workflow run."""
+    """Allow the next scheduled GitHub check to retry after a failed workflow run."""
     init_db()
     conn = connect_db()
     try:
