@@ -85,6 +85,40 @@ def is_india_based_job(job) -> bool:
     )
     return any(place in text for place in indian_places)
 
+
+def is_internship_job(job) -> bool:
+    """Return True when title, structured type, or clear description text marks an internship."""
+    def clean(value) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip().lower()
+        return "" if text in {"", "nan", "none", "null", "<na>"} else text
+
+    title = clean(job.get("title", ""))
+    if re.search(r"\b(internship|intern)\b", title):
+        return True
+
+    # Prefer structured fields when the scraper provides employment type.
+    employment_type = " ".join(
+        clean(job.get(field, ""))
+        for field in ("job_type", "employment_type", "employmentType")
+    )
+    if re.search(r"\b(internship|intern)\b", employment_type):
+        return True
+
+    # Description fallback catches cases where the title omits the role type,
+    # while avoiding a blanket search for the word "intern" anywhere in prose.
+    description = clean(job.get("description", ""))
+    description_patterns = (
+        r"\bthis (?:is|will be) an? internship\b",
+        r"\b(?:an? )?internship (?:position|role|opportunity|program|programme|opening)\b",
+        r"\b(?:summer|winter|spring|fall) intern(?:ship)?\b",
+        r"\b(?:job type|employment type)\s*[:\-]\s*internship\b",
+        r"\babout the internship\b",
+        r"\b(?:seeking|looking for|hiring|recruiting)\s+(?:an?\s+)?interns?\b",
+    )
+    return any(re.search(pattern, description) for pattern in description_patterns)
+
 # Candidate experience — used by the evaluator to gate jobs.
 # A job is only skipped if it asks for MORE than the acceptable max.
 CANDIDATE_YEARS_EXPERIENCE     = 3
@@ -206,6 +240,7 @@ async def run_agent():
     skipped_exp    = 0
     failed_scrapes = 0
     skipped_empty_desc = 0
+    skipped_internships = 0
 
     for location in LOCATIONS:
         for search_term in JOB_SEARCH_TERMS:
@@ -228,7 +263,13 @@ async def run_agent():
                 description = str(job.get("description", ""))
                 job_url     = str(job.get("job_url", ""))
 
-                # ── Filter 1: Restrict results to India or remote roles ──
+                # ── Filter 1: Skip internship roles before evaluation ──
+                if is_internship_job(job):
+                    skipped_internships += 1
+                    print(f"   ⏭️  Skipping (internship role): {title}")
+                    continue
+
+                # ── Filter 2: Restrict results to India or remote roles ──
                 # The India search is country-scoped by LinkedIn. The Remote
                 # search is broader, so require an explicit remote signal or an
                 # India location before evaluating the job.
@@ -238,18 +279,18 @@ async def run_agent():
                     print(f"   ⏭️  Skipping (not confirmed India/remote): {title}")
                     continue
 
-                # ── Filter 2: Skip already processed jobs ──
+                # ── Filter 3: Skip already processed jobs ──
                 if is_already_processed(title, company):
                     skipped_dupes += 1
                     print(f"   ⏭️  Already processed: {title} @ {company}")
                     continue
 
-                # ── Filter 3: Posted in last 12 hours ──
+                # ── Filter 4: Posted in last 12 hours ──
                 if not is_posted_recently(job, hours=12):
                     print(f"   ⏭️  Skipping (too old): {title}")
                     continue
 
-                # ── Filter 4: Description must actually be present ──
+                # ── Filter 5: Description must actually be present ──
                 if len(description.strip()) < 50:
                     skipped_empty_desc += 1
                     print(f"   ⏭️  Skipping (no description scraped): {title}")
@@ -349,7 +390,8 @@ async def run_agent():
     print(f"\n{'='*55}")
     print(f"✅ Scan Complete!")
     print(f"   Total found:        {total_jobs}")
-    print(f"   Skipped (dupes):    {skipped_dupes}")
+    print(f"   Skipped (internships): {skipped_internships}")
+    print(f"   Skipped (dupes):       {skipped_dupes}")
     print(f"   Skipped (exp):      {skipped_exp}")
     print(f"   Failed scrapes:     {failed_scrapes}")
     print(f"   After filters:      {filtered_jobs}")
@@ -360,19 +402,19 @@ async def run_agent():
     await send_daily_summary(filtered_jobs, high_matches, low_matches)
 
 
-# ── Local scheduler: runs every 4 hours ───────────────────
+# ── Local scheduler: runs every 10 hours ───────────────────
 
 async def scheduler():
-    """Runs the agent every 4 hours when used outside GitHub Actions."""
+    """Runs the agent every 10 hours when used outside GitHub Actions."""
     while True:
         try:
             await run_agent()
         except Exception as e:
             print(f"❌ Scheduler error: {e}")
 
-        next_run = datetime.now() + timedelta(hours=4)
+        next_run = datetime.now() + timedelta(hours=10)
         print(f"\n⏳ Next run at: {next_run.strftime('%H:%M')}")
-        await asyncio.sleep(4 * 60 * 60)
+        await asyncio.sleep(10 * 60 * 60)
 
 
 # ── Entry point ────────────────────────────────────────────
@@ -389,7 +431,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--force", action="store_true",
-        help="With --once, run immediately even if fewer than 4 hours have elapsed.",
+        help="With --once, run immediately even if fewer than 10 hours have elapsed.",
     )
     args = parser.parse_args()
 
@@ -398,15 +440,15 @@ if __name__ == "__main__":
             parser.error("--force and --skip-schedule-check should not be used together.")
 
         claimed_here = not args.skip_schedule_check
-        if claimed_here and not try_start_scheduled_run(interval_hours=4, force=args.force):
-            print("⏭️  Scan not due yet; the last run started less than 4 hours ago.")
+        if claimed_here and not try_start_scheduled_run(interval_hours=10, force=args.force):
+            print("⏭️  Scan not due yet; the last run started less than 10 hours ago.")
             raise SystemExit(0)
 
         print("🚀 Starting LinkedIn Job Agent for a single scan...\n")
         try:
             asyncio.run(run_agent())
         except BaseException:
-            # A failed one-shot run should be eligible for retry at the next scheduled check.
+            # A failed one-shot run should be eligible for retry at the next hourly check.
             if claimed_here:
                 try:
                     reset_scheduled_run_after_failure()
@@ -414,6 +456,6 @@ if __name__ == "__main__":
                     print(f"⚠️ Could not reset schedule state after failure: {reset_exc}")
             raise
     else:
-        print("🚀 Starting LinkedIn Job Agent with 4-hour local scheduler...")
+        print("🚀 Starting LinkedIn Job Agent with 10-hour local scheduler...")
         print("   Press Ctrl+C to stop\n")
         asyncio.run(scheduler())
