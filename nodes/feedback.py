@@ -1,5 +1,5 @@
 """Generate concise feedback only for mid-range matches (50–74)."""
-from tools.llm_client import llm
+from tools.llm_client import extract_response_text, llm
 
 
 async def feedback_node(state: dict) -> dict:
@@ -16,7 +16,7 @@ In at most 120 words, list the 2 most important truthful improvements.
 Do not suggest inventing skills or experience."""
     try:
         response = await llm.ainvoke(prompt)
-        content = str(getattr(response, "content", "") or "").strip()
+        content = extract_response_text(response)
         if not content:
             raise RuntimeError("Empty feedback response")
         state["feedback"] = content[:1500]

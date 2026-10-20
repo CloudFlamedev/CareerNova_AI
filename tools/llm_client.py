@@ -33,7 +33,9 @@ MODEL_ORDER = list(dict.fromkeys(
     if item.strip()
 )) or _DEFAULT_MODELS.copy()
 
-MAX_OUTPUT_TOKENS = int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "300"))
+# 500 gives the evaluator enough room to finish a valid JSON object while its
+# prompt limits skill lists. Set GROQ_MAX_OUTPUT_TOKENS to override this value.
+MAX_OUTPUT_TOKENS = int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "500"))
 REQUEST_TIMEOUT = float(os.getenv("GROQ_REQUEST_TIMEOUT", "45"))
 EMPTY_RESPONSE_COOLDOWN = int(os.getenv("GROQ_EMPTY_RESPONSE_COOLDOWN", "60"))
 COOLDOWN_FILE = Path(os.getenv("GROQ_COOLDOWN_FILE", ".groq_model_cooldowns.json"))
@@ -50,7 +52,6 @@ def extract_response_text(response: Any) -> str:
             if isinstance(block, str):
                 parts.append(block)
             elif isinstance(block, dict):
-                # LangChain/Groq text blocks commonly use {"type": "text", "text": ...}.
                 value = block.get("text")
                 if isinstance(value, str):
                     parts.append(value)
@@ -112,7 +113,6 @@ class GroqModelRouter:
             seconds = float(composite.group(3) or 0)
             explicit_seconds = max(2, int(hours * 3600 + minutes * 60 + seconds) + 2)
 
-        # Daily quota errors should not be retried for every job.
         if any(term in text for term in (
             "tokens per day", "token per day", "requests per day",
             "daily limit", "tpd", "rpd",
@@ -188,7 +188,6 @@ class GroqModelRouter:
                         reason = "Empty response from the model"
                         self._mark_cooldown(model_name, EMPTY_RESPONSE_COOLDOWN, reason)
                         errors.append(f"{model_name}: {reason}")
-                        # Do not return an empty response as if the call succeeded.
                         continue
                     print(f"   🤖 Groq model used: {model_name}")
                     return response
