@@ -89,6 +89,6 @@ async def send_daily_summary(jobs_processed: int,
 ✅ High Matches (75+): {high_matches}
 🔴 Low Matches: {low_matches}
 
-<i>Next scan in 10 hours</i>
+<i>Next scan in about 2 hours</i>
 """
     await send_telegram_message(message.strip())

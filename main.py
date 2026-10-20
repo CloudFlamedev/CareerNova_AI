@@ -22,7 +22,7 @@ load_dotenv()
 MIN_MATCH_SCORE    = 75
 MIN_FEEDBACK_SCORE  = 50  # Keep in sync with graph.py
 # Keep each search smaller to reduce the total runtime in GitHub Actions.
-RESULTS_PER_SEARCH = 10
+RESULTS_PER_SEARCH = 15
 MAX_RETRIES        = 3
 # Conservative delays: faster than the original 30s/job while allowing time
 # between Groq requests to reduce the likelihood of rate-limit errors.
@@ -412,9 +412,9 @@ async def scheduler():
         except Exception as e:
             print(f"❌ Scheduler error: {e}")
 
-        next_run = datetime.now() + timedelta(hours=10)
+        next_run = datetime.now() + timedelta(hours=2)
         print(f"\n⏳ Next run at: {next_run.strftime('%H:%M')}")
-        await asyncio.sleep(10 * 60 * 60)
+        await asyncio.sleep(2 * 60 * 60)
 
 
 # ── Entry point ────────────────────────────────────────────
@@ -431,7 +431,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--force", action="store_true",
-        help="With --once, run immediately even if fewer than 10 hours have elapsed.",
+        help="With --once, run immediately even if fewer than 2 hours have elapsed.",
     )
     args = parser.parse_args()
 
@@ -440,8 +440,8 @@ if __name__ == "__main__":
             parser.error("--force and --skip-schedule-check should not be used together.")
 
         claimed_here = not args.skip_schedule_check
-        if claimed_here and not try_start_scheduled_run(interval_hours=10, force=args.force):
-            print("⏭️  Scan not due yet; the last run started less than 10 hours ago.")
+        if claimed_here and not try_start_scheduled_run(interval_hours=2, force=args.force):
+            print("⏭️  Scan not due yet; the last run started less than 2 hours ago.")
             raise SystemExit(0)
 
         print("🚀 Starting LinkedIn Job Agent for a single scan...\n")
@@ -456,6 +456,6 @@ if __name__ == "__main__":
                     print(f"⚠️ Could not reset schedule state after failure: {reset_exc}")
             raise
     else:
-        print("🚀 Starting LinkedIn Job Agent with 10-hour local scheduler...")
+        print("🚀 Starting LinkedIn Job Agent with 2-hour local scheduler...")
         print("   Press Ctrl+C to stop\n")
         asyncio.run(scheduler())

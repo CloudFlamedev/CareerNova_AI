@@ -1,14 +1,14 @@
 name: LinkedIn Job Agent
 
 on:
-  # GitHub schedules a check every 4 hours; the Neon-backed guard enforces the same interval.
+  # GitHub schedules a check every 2 hours; the Neon-backed guard enforces the same interval.
   schedule:
-    - cron: "17 */4 * * *"
+    - cron: "17 */2 * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
       force_run:
-        description: "Run now even if the 4-hour interval has not elapsed"
+        description: "Run now even if the 2-hour interval has not elapsed"
         required: false
         type: boolean
         default: false
@@ -51,7 +51,7 @@ jobs:
         env:
           FORCE_RUN: ${{ inputs.force_run }}
         run: |
-          # The cron schedule already controls the 4-hour cadence. Do not let
+          # The cron schedule already controls the 2-hour cadence. Do not let
           # a stale/previous Neon timestamp silently skip an actual scheduled scan.
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
             echo "Scheduled trigger: starting the scan; the cron schedule controls cadence."
@@ -60,7 +60,7 @@ jobs:
             echo "Manual force_run enabled: starting the scan now."
             python scripts/schedule_guard.py --force
           else
-            echo "Manual run without force: checking the 4-hour Neon interval."
+            echo "Manual run without force: checking the 2-hour Neon interval."
             python scripts/schedule_guard.py
           fi
 

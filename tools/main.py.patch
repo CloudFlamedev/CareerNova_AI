@@ -1,0 +1,29 @@
+*** Begin Patch
+*** Update File: main.py
+@@
+-RESULTS_PER_SEARCH = 10
++RESULTS_PER_SEARCH = 15
+@@
+-# ── Local scheduler: runs every 10 hours ───────────────────
++# ── Local scheduler: runs every 2 hours ────────────────────
+@@
+-    """Runs the agent every 10 hours when used outside GitHub Actions."""
++    """Runs the agent every 2 hours when used outside GitHub Actions."""
+@@
+-        next_run = datetime.now() + timedelta(hours=10)
++        next_run = datetime.now() + timedelta(hours=2)
+         print(f"\n⏳ Next run at: {next_run.strftime('%H:%M')}")
+-        await asyncio.sleep(10 * 60 * 60)
++        await asyncio.sleep(2 * 60 * 60)
+@@
+-        help="With --once, run immediately even if fewer than 10 hours have elapsed.",
++        help="With --once, run immediately even if fewer than 2 hours have elapsed.",
+@@
+-        if claimed_here and not try_start_scheduled_run(interval_hours=10, force=args.force):
+-            print("⏭️  Scan not due yet; the last run started less than 10 hours ago.")
++        if claimed_here and not try_start_scheduled_run(interval_hours=2, force=args.force):
++            print("⏭️  Scan not due yet; the last run started less than 2 hours ago.")
+@@
+-        print("🚀 Starting LinkedIn Job Agent with 10-hour local scheduler...")
++        print("🚀 Starting LinkedIn Job Agent with 2-hour local scheduler...")
+*** End Patch
