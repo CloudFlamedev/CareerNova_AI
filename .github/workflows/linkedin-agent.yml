@@ -1,9 +1,10 @@
 name: LinkedIn Job Agent
 
 on:
-  # GitHub schedules a check every 2 hours; the Neon-backed guard enforces the same interval.
+  # Check hourly; Neon allows a full scan only once every 2 hours.
+  # This gives the workflow another chance if a scheduled event is delayed or missed.
   schedule:
-    - cron: "17 */2 * * *"
+    - cron: "23 * * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
@@ -27,7 +28,6 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
@@ -51,16 +51,11 @@ jobs:
         env:
           FORCE_RUN: ${{ inputs.force_run }}
         run: |
-          # The cron schedule already controls the 2-hour cadence. Do not let
-          # a stale/previous Neon timestamp silently skip an actual scheduled scan.
-          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-            echo "Scheduled trigger: starting the scan; the cron schedule controls cadence."
-            python scripts/schedule_guard.py --force
-          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$FORCE_RUN" == "true" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$FORCE_RUN" == "true" ]]; then
             echo "Manual force_run enabled: starting the scan now."
             python scripts/schedule_guard.py --force
           else
-            echo "Manual run without force: checking the 2-hour Neon interval."
+            echo "Checking the Neon-backed 2-hour interval."
             python scripts/schedule_guard.py
           fi
 
